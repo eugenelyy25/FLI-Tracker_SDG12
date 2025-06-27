@@ -21,6 +21,13 @@ def get_iso_code(country_name):
     except:
         return None
 
+def is_country(name):
+    try:
+        pycountry.countries.lookup(name)
+        return True
+    except:
+        return False
+
 data = load_data()
 
 # UI
@@ -60,16 +67,20 @@ st.metric("Reporting Countries", value=num_countries)
 # Map View
 st.subheader("Choropleth Map: Food Loss Index by Country")
 map_data = year_data.copy()
+map_data = map_data[map_data['AREA'].apply(is_country)]
 map_data['ISO_Code'] = map_data['AREA'].apply(get_iso_code)
 map_data = map_data.dropna(subset=['ISO_Code'])
 
-fig_map = px.choropleth(map_data,
-                        locations='ISO_Code',
-                        color='FLI',
-                        hover_name='AREA',
-                        title=f"Food Loss Index ({selected_year})",
-                        color_continuous_scale='YlOrRd')
-st.plotly_chart(fig_map, use_container_width=True)
+if not map_data.empty:
+    fig_map = px.choropleth(map_data,
+                            locations='ISO_Code',
+                            color='FLI',
+                            hover_name='AREA',
+                            title=f"Food Loss Index ({selected_year})",
+                            color_continuous_scale='YlOrRd')
+    st.plotly_chart(fig_map, use_container_width=True)
+else:
+    st.warning("No country-level data available for choropleth map.")
 
 # Predictive Modeling
 st.subheader("FLI Trend Forecast (Linear Regression)")

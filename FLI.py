@@ -1,33 +1,51 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 import numpy as np
+import pycountry
+from difflib import get_close_matches
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Load cleaned data
 @st.cache_data
 def load_data():
-    # In a real app, you would load from Excel - here's the structure
-    data = pd.DataFrame({
-        'AREA': ['World', 'Africa', 'South America', 'Western Africa', 'Central America',
-                 'World', 'Africa', 'South America', 'Western Africa', 'Central America'],
-        'TIME_PERIOD': [2016, 2016, 2016, 2016, 2016, 2021, 2021, 2021, 2021, 2021],
-        'FLI': [98.69, None, 99.32, 99.76, 103.14, 98.27, None, 104.29, 99.69, 85.7],
-        'LossPercent': [13.0, None, 11.8, 24.0, 13.8, 13.23, None, 14.1, 23.56, 15.91]
-    })
-    return data.dropna()
+    index_data = pd.read_excel("DF_SDG_12_3_1.xlsx", sheet_name="AG_FLS_INDEX")
+    pct_data = pd.read_excel("DF_SDG_12_3_1.xlsx", sheet_name="AG_FLS_PCT")
+    index_data = index_data[['AREA', 'TIME_PERIOD', 'OBS_VALUE']].rename(columns={'OBS_VALUE': 'FLI'}).dropna()
+    pct_data = pct_data[['AREA', 'TIME_PERIOD', 'OBS_VALUE']].rename(columns={'OBS_VALUE': 'LossPercent'}).dropna()
+
+    # Convert TIME_PERIOD to int if possible
+    index_data['TIME_PERIOD'] = index_data['TIME_PERIOD'].astype(int)
+    pct_data['TIME_PERIOD'] = pct_data['TIME_PERIOD'].astype(int)
+
+    merged = pd.merge(index_data, pct_data, on=['AREA', 'TIME_PERIOD'], how='inner')
+    return merged, pct_data
+
+# Fuzzy match with pycountry
+country_names = [country.name for country in pycountry.countries]
+
+def get_iso_code_fuzzy(name):
+    match = get_close_matches(name, country_names, n=1, cutoff=0.8)
+    if match:
+        try:
+            return pycountry.countries.get(name=match[0]).alpha_3
+        except:
+            return None
+    return None
+
+data, pct_data = load_data()
 
 # UI
 st.title("Food Loss Index (FLI) Tracker : SDG 12")
 st.write("Tracker built for Food Loss Index and Percentage to assess sustainable development goal progress by region and year")
 
-data = load_data()
 regions = sorted(data['AREA'].unique())
 years = sorted(data['TIME_PERIOD'].unique())
 
 selected_region = st.selectbox("Region", regions, index=regions.index("World") if "World" in regions else 0)
-selected_year = st.selectbox("Year", years, index=len(years)-1)
+selected_year = st.selectbox("Year", years, index=years.index(2020) if 2020 in years else len(years)-1)
 
 filtered_data = data[data['AREA'] == selected_region]
 year_data = data[data['TIME_PERIOD'] == selected_year].sort_values(by='FLI', ascending=False)
@@ -41,39 +59,27 @@ with col1:
 
 with col2:
     top10 = year_data.head(10)
-    fig_top10 = px.bar(top10, x='FLI', y='AREA', orientation='h', 
-                      title='Top 10 Regions by Food Loss Index')
+    fig_top10 = px.bar(top10, x='FLI', y='AREA', orientation='h', title='Top 10 Countries by Food Loss Index')
     st.plotly_chart(fig_top10, use_container_width=True)
 
 # Summary Stats
-fli_value = filtered_data[filtered_data['TIME_PERIOD'] == selected_year]['FLI'].values[0] if not filtered_data.empty else "N/A"
-loss_pct = filtered_data[filtered_data['TIME_PERIOD'] == selected_year]['LossPercent'].values[0] if not filtered_data.empty else "N/A"
-num_regions = year_data['AREA'].nunique()
+fli_value = float(year_data[year_data['AREA'] == selected_region]['FLI'].values[0]) if selected_region in year_data['AREA'].values else "N/A"
+loss_pct = float(year_data[year_data['AREA'] == selected_region]['LossPercent'].values[0]) if selected_region in year_data['AREA'].values else "N/A"
+num_countries = year_data['AREA'].nunique()
 
-col3, col4, col5 = st.columns(3)
-col3.metric("Food Loss Index", value=fli_value)
-col4.metric("Food Loss (%)", value=loss_pct)
-col5.metric("Reporting Regions", value=num_regions)
+st.metric("Food Loss Index", value=fli_value)
+st.metric("Food Loss (%)", value=loss_pct)
+st.metric("Reporting Countries", value=num_countries)
 
-# Food Loss Percentage Plot (replaces the map)
-st.subheader("Food Loss Percentage by Region Over Time")
-pct_data = data.dropna(subset=['LossPercent'])
-
-# Get top regions based on current year
-top_regions = year_data.sort_values(by='LossPercent', ascending=False).head(5)['AREA'].tolist()
-selected_regions = st.multiselect("Select regions for percentage plot", 
-                                  sorted(pct_data['AREA'].unique()), 
-                                  default=top_regions)
-
-if selected_regions:
-    plot_data = pct_data[pct_data['AREA'].isin(selected_regions)]
-    fig_pct = px.line(plot_data, x='TIME_PERIOD', y='LossPercent', color='AREA',
-                      title='Food Loss Percentage Trend',
-                      labels={'TIME_PERIOD': 'Year', 'LossPercent': 'Food Loss (%)'},
-                      markers=True)
-    st.plotly_chart(fig_pct, use_container_width=True)
-else:
-    st.warning("Please select at least one region to display")
+# Loss percent plot (matplotlib/seaborn)
+plt.figure(figsize=(10,6))
+sns.lineplot(data=pct_data, x='TIME_PERIOD', y='LossPercent', hue='AREA', legend='full')
+plt.title('Food Loss Percentage by Region')
+plt.ylabel('% Loss')
+plt.xlabel('Year')
+plt.legend(bbox_to_anchor=(1,1))
+plt.tight_layout()
+st.pyplot(plt.gcf())
 
 # Predictive Modeling
 st.subheader("FLI Trend Forecast (Linear Regression)")
@@ -81,47 +87,13 @@ if len(filtered_data) > 1:
     X = filtered_data[['TIME_PERIOD']]
     y = filtered_data['FLI']
     model = LinearRegression().fit(X, y)
-    future_years = pd.DataFrame({'TIME_PERIOD': np.arange(min(years), max(years)+5)})
+    future_years = pd.DataFrame({'TIME_PERIOD': np.arange(min(years), max(years)+6)})
     predictions = model.predict(future_years)
-    
-    # Create plot with historical data and predictions
-    fig = go.Figure()
-    
-    # Historical data
-    fig.add_trace(go.Scatter(
-        x=filtered_data['TIME_PERIOD'], 
-        y=filtered_data['FLI'],
-        mode='lines+markers',
-        name='Historical Data'
-    ))
-    
-    # Predictions
-    fig.add_trace(go.Scatter(
-        x=future_years['TIME_PERIOD'],
-        y=predictions,
-        mode='lines',
-        name='Forecast',
-        line=dict(dash='dash')
-    ))
-    
-    # Current year marker
-    fig.add_vline(x=selected_year, line_dash="dot", line_color="red")
-    
-    fig.update_layout(
-        title=f"FLI Forecast for {selected_region}",
-        xaxis_title="Year",
-        yaxis_title="Food Loss Index",
-        showlegend=True
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Show prediction values
-    forecast_df = pd.DataFrame({
-        'Year': future_years['TIME_PERIOD'],
-        'Predicted FLI': predictions
-    })
-    st.write("Forecasted Values:", forecast_df)
+
+    fig_forecast = px.line(x=future_years['TIME_PERIOD'], y=predictions,
+                           labels={'x': 'Year', 'y': 'Predicted FLI'},
+                           title=f"Predicted FLI for {selected_region} (Next 5 Years)")
+    st.plotly_chart(fig_forecast, use_container_width=True)
 else:
     st.info("Not enough data to train a prediction model for this region.")
 
@@ -131,8 +103,6 @@ st.markdown("""
 - **Strengthen data systems** in low-reporting regions
 - **Focus interventions** at production and post-harvest stages
 - **Promote cold-chain logistics** and storage innovation
-- **Implement consumer education** programs to reduce waste
-- **Develop standardized measurement** methodologies globally
 """)
 
 # Footer

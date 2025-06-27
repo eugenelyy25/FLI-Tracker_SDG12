@@ -4,6 +4,7 @@ import plotly.express as px
 from sklearn.linear_model import LinearRegression
 import numpy as np
 import pycountry
+from difflib import get_close_matches
 
 # Load cleaned data (assumes preprocessing similar to what we did)
 @st.cache_data
@@ -15,18 +16,17 @@ def load_data():
     merged = pd.merge(index_data, pct_data, on=['AREA', 'TIME_PERIOD'], how='inner')
     return merged
 
-def get_iso_code(country_name):
-    try:
-        return pycountry.countries.lookup(country_name).alpha_3
-    except:
-        return None
+# Fuzzy match with pycountry
+country_names = [country.name for country in pycountry.countries]
 
-def is_country(name):
-    try:
-        pycountry.countries.lookup(name)
-        return True
-    except:
-        return False
+def get_iso_code_fuzzy(name):
+    match = get_close_matches(name, country_names, n=1, cutoff=0.8)
+    if match:
+        try:
+            return pycountry.countries.get(name=match[0]).alpha_3
+        except:
+            return None
+    return None
 
 data = load_data()
 
@@ -67,8 +67,7 @@ st.metric("Reporting Countries", value=num_countries)
 # Map View
 st.subheader("Choropleth Map: Food Loss Index by Country")
 map_data = year_data.copy()
-map_data = map_data[map_data['AREA'].apply(is_country)]
-map_data['ISO_Code'] = map_data['AREA'].apply(get_iso_code)
+map_data['ISO_Code'] = map_data['AREA'].apply(get_iso_code_fuzzy)
 map_data = map_data.dropna(subset=['ISO_Code'])
 
 if not map_data.empty:
@@ -106,5 +105,5 @@ st.markdown("""
 - **Promote cold-chain logistics** and storage innovation
 """)
 
-# Deployment note
-st.caption("To deploy this dashboard on Streamlit Cloud, upload your script and Excel file, and link your GitHub repo to Streamlit Cloud with public access.")
+# Footer
+st.caption("The FLI dashboard is published and updated as of 28.06.2025")

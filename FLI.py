@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from sklearn.linear_model import LinearRegression
 import numpy as np
+import pycountry
 
 # Load cleaned data (assumes preprocessing similar to what we did)
 @st.cache_data
@@ -13,6 +14,12 @@ def load_data():
     pct_data = pct_data[['AREA', 'TIME_PERIOD', 'OBS_VALUE']].rename(columns={'OBS_VALUE': 'LossPercent'}).dropna()
     merged = pd.merge(index_data, pct_data, on=['AREA', 'TIME_PERIOD'], how='inner')
     return merged
+
+def get_iso_code(country_name):
+    try:
+        return pycountry.countries.lookup(country_name).alpha_3
+    except:
+        return None
 
 data = load_data()
 
@@ -53,9 +60,14 @@ st.metric("Reporting Countries", value=num_countries)
 # Map View
 st.subheader("Choropleth Map: Food Loss Index by Country")
 map_data = year_data.copy()
-map_data['ISO_Code'] = map_data['AREA']  # Ideally map to ISO country codes
-fig_map = px.choropleth(map_data, locations='AREA', locationmode='country names',
-                        color='FLI', hover_name='AREA', title=f"Food Loss Index ({selected_year})",
+map_data['ISO_Code'] = map_data['AREA'].apply(get_iso_code)
+map_data = map_data.dropna(subset=['ISO_Code'])
+
+fig_map = px.choropleth(map_data,
+                        locations='ISO_Code',
+                        color='FLI',
+                        hover_name='AREA',
+                        title=f"Food Loss Index ({selected_year})",
                         color_continuous_scale='YlOrRd')
 st.plotly_chart(fig_map, use_container_width=True)
 
@@ -67,7 +79,7 @@ if len(filtered_data) > 1:
     model = LinearRegression().fit(X, y)
     future_years = pd.DataFrame({'TIME_PERIOD': np.arange(min(years), max(years)+6)})
     predictions = model.predict(future_years)
-    
+
     fig_forecast = px.line(x=future_years['TIME_PERIOD'], y=predictions,
                            labels={'x': 'Year', 'y': 'Predicted FLI'},
                            title=f"Predicted FLI for {selected_region} (Next 5 Years)")
@@ -83,3 +95,5 @@ st.markdown("""
 - **Promote cold-chain logistics** and storage innovation
 """)
 
+# Deployment note
+st.caption("To deploy this dashboard on Streamlit Cloud, upload your script and Excel file, and link your GitHub repo to Streamlit Cloud with public access.")

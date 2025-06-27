@@ -1,6 +1,8 @@
 streamlit
 pandas
-openpyxl
 plotly
 scikit-learn
+numpy
 pycountry
+matplotlib
+seaborn
